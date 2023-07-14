@@ -1,0 +1,17 @@
+@startmindmap communication模块功能点
+skinparam dpi 800
+*[#Orange] <&flag>功能点
+++[#lightblue] TCP服务器管理
++++[#lightgreen] 新连接管理
++++[#lightgreen] 每个连接消息处理
++++[#lightgreen] 具体的消息处理是否需要在本模块处理?\n还是一个统一的对外接口,对外在这个接口里面处理?\n消息处理是否需要做线程池?
+++[#lightblue] Websocket服务器管理
+++[#lightblue] TCP客户端管理
+++[#lightblue] Websocket客户端管理管理
+++[#lightblue] 将对外的接口抽象成一个ICommunicator
+++[#lightblue] 将对内的接口抽象成一个IDataMgr
+++[#lightblue] 1w的请求(各个接口耗时分析,内存分析)?
+++[#lightblue] 10w的请求(各个接口耗时分析,内存分析)?
+++[#lightblue] 100w的请求(各个接口耗时分析,内存分析)?
+
+@endmindmap

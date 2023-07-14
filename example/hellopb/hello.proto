@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package hellopb;
+
+message PK_HELLO_REQ
+{
+	enum CMD_HELLO_REQ
+	{
+		UNKNOWN = 0;
+		CMD = 0x0A0B0001;
+	}
+	string name = 1;
+}
+
+message PK_HELLO_RSP
+{
+	enum CMD_HELLO_RSP
+	{
+		UNKNOWN = 0;
+		CMD = 0x0B0A0001;
+	}
+    string errmsg = 1;
+}
