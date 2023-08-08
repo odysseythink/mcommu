@@ -5,36 +5,27 @@ import (
 	"net"
 	"runtime"
 	"strconv"
-	"strings"
 )
 
 func IsNetAddrValid(addr string) bool {
-	addr = strings.ReplaceAll(addr, " ", "")
-	if addr == "" {
-		log.Printf("[E]invalid arg\n")
-		return false
-	}
-	tmps := strings.Split(addr, ":")
-	if len(tmps) != 2 {
-		log.Printf("[E]addr(%s) must have the format(ip:port)\n", addr)
-		return false
-	}
-	if tmps[0] != "" {
-		_, err := net.ResolveIPAddr("ip", tmps[0])
-		if err != nil {
-			log.Printf("[E]net.ResolveIPAddr(\"ip\", %s) failed:%v\n", tmps[0], err)
-			return false
-		}
-	}
-
-	port, err := strconv.Atoi(tmps[1])
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		log.Printf("[E]port(%s) convert to int failed\n", tmps[1])
+		log.Printf("[E]addr(%s)have the invalid format:%v\n", addr, err)
+		return false
+	}
+	if ip := net.ParseIP(host); ip == nil {
+		log.Printf("[E]net.ParseIP(%s) failed:%v\n", host, err)
 		return false
 	}
 
-	if port < 0 || port > 65535 {
-		log.Printf("[E]port(%s) must in range:0~65535\n", tmps[1])
+	iport, err := strconv.Atoi(port)
+	if err != nil {
+		log.Printf("[E]port(%s) convert to int failed:%v\n", port, err)
+		return false
+	}
+
+	if iport < 0 || iport > 65535 {
+		log.Printf("[E]port(%d) must in range:0~65535\n", iport)
 		return false
 	}
 	return true
