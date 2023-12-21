@@ -235,25 +235,25 @@ type tcpConn struct {
 	closeOnce sync.Once
 }
 
-func newTCPConn(conn net.Conn, processor IProcessor) *tcpConn {
-	if processor == nil || conn == nil {
-		log.Printf("[E]both processor and net.Conn are needed")
-		return nil
-	}
+// func newTCPConn(conn net.Conn, processor IProcessor) *tcpConn {
+// 	if processor == nil || conn == nil {
+// 		log.Printf("[E]both processor and net.Conn are needed")
+// 		return nil
+// 	}
 
-	tcpconn := &tcpConn{}
-	tcpconn.conn = conn
-	tcpconn.processor = processor
-	tcpconn.ioMgr.Register(&tcpconn.tcpConnReader, nil, conn, processor, tcpconn)
-	tcpconn.ioMgr.Register(&tcpconn.tcpConnWriter, nil, conn, processor, tcpconn)
-	err := tcpconn.Init()
-	if err != nil {
-		log.Printf("[E]tcpconn init failed:%v\n", err)
-		return nil
-	}
+// 	tcpconn := &tcpConn{}
+// 	tcpconn.conn = conn
+// 	tcpconn.processor = processor
+// 	tcpconn.ioMgr.Register(&tcpconn.tcpConnReader, nil, conn, processor, tcpconn)
+// 	tcpconn.ioMgr.Register(&tcpconn.tcpConnWriter, nil, conn, processor, tcpconn)
+// 	err := tcpconn.Init()
+// 	if err != nil {
+// 		log.Printf("[E]tcpconn init failed:%v\n", err)
+// 		return nil
+// 	}
 
-	return tcpconn
-}
+// 	return tcpconn
+// }
 
 func (c *tcpConn) Init(args ...interface{}) error {
 	// log.Printf("......args=%#v\n", args)
