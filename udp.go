@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"mlib.com/mrun"
 )
@@ -200,16 +201,12 @@ func (c *udpCommunicatorBaseIO) UserData() interface{} {
 type udpCommunicatorReader struct {
 	udpCommunicatorBaseIO
 
-	leftData    []byte
-	leftDataBuf *bytes.Buffer
-	buf         []byte
-	readbuf     []byte
-	startIdx    int
-	copyLen     int
-	udpConnPool sync.Pool
+	bufferPool sync.Pool
+	readBuf    []byte
+	clients    sync.Map
 }
 
-func (r *udpCommunicatorReader) RunOnce(context.Context) error {
+func (r *udpCommunicatorReader) RunOnce(ctx context.Context) error {
 	if r.parent == nil {
 		log.Printf("[W]no UDPCommunicator provided")
 		return fmt.Errorf("no UDPCommunicator provided")
@@ -222,29 +219,18 @@ func (r *udpCommunicatorReader) RunOnce(context.Context) error {
 		log.Printf("[W]no processor provided\n")
 		return fmt.Errorf("no processor provided")
 	}
-	if r.udpConnPool.New == nil {
-		r.udpConnPool.New = func() interface{} {
-			return &udpConn{}
+	if r.bufferPool.New == nil {
+		r.bufferPool.New = func() interface{} {
+			return bytes.NewBuffer(make([]byte, 512))
 		}
 	}
-	if r.leftData == nil {
-		r.leftData = make([]byte, 0, 2048)
-		r.leftDataBuf = bytes.NewBuffer(r.leftData)
-		r.leftDataBuf.Reset()
-		r.startIdx = 0
-		r.copyLen = 0
-	}
-	if r.buf == nil {
-		r.buf = make([]byte, 1024)
-	}
-	if r.readbuf == nil {
-		r.readbuf = make([]byte, 1024)
+
+	if r.readBuf == nil {
+		r.readBuf = make([]byte, 512)
 	}
 
 	// DebugMem()
-	r.buf = r.buf[0:]
-	// r.conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
-	nn, rAddr, err := r.conn.ReadFromUDP(r.buf)
+	nn, rAddr, err := r.conn.ReadFromUDP(r.readBuf)
 	if err != nil {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			return nil
@@ -252,39 +238,33 @@ func (r *udpCommunicatorReader) RunOnce(context.Context) error {
 		log.Printf("[E]read message failed: %v\n", err)
 		return fmt.Errorf("read message failed: %v", err)
 	}
-	// log.Printf("[D]%s from %s read %d bytes \n", r.conn.LocalAddr().String(), rAddr.String(), nn)
-	r.startIdx = 0
-	for nn > 0 {
-		if r.leftDataBuf.Cap()-r.leftDataBuf.Len() >= nn {
-			r.copyLen = nn
+	if nn > 0 {
+		// log.Printf("[D]%s from %s read %d bytes \n", r.conn.LocalAddr().String(), rAddr.String(), nn)
+		var cli *udpConn
+		if val, ok := r.clients.Load(rAddr.String()); !ok {
+			cli = &udpConn{}
+			cli.remoteAddr = rAddr
+			cli.processor = r.processor
+			cli.conn = r.conn
+			cli.communicator = r.parent
+			cli.buf = r.bufferPool.Get().(*bytes.Buffer)
+			cli.buf.Reset()
+			cli.timeoutTimer = time.NewTimer(5000 * time.Millisecond)
+			cli.readbuf = r.bufferPool.Get().(*bytes.Buffer)
+			r.clients.Store(rAddr.String(), cli)
+			cli.exitWg.Add(1)
+			go cli.runRecieveLoop(ctx)
+			go func(c *udpConn) {
+				c.exitWg.Wait()
+				r.bufferPool.Put(c.buf)
+				r.bufferPool.Put(c.readbuf)
+				r.clients.Delete(cli.remoteAddr.String())
+			}(cli)
 		} else {
-			r.copyLen = r.leftDataBuf.Cap() - r.leftDataBuf.Len()
+			cli = val.(*udpConn)
 		}
-		r.leftDataBuf.Write(r.buf[r.startIdx : r.startIdx+r.copyLen])
-		r.startIdx += r.copyLen
-		nn -= r.copyLen
-		headid, msg, leftlen, err := r.processor.Unmarshal(r.leftDataBuf.Bytes())
-		if err != nil {
-			log.Printf("[E]processor.UnMarshal failed: %v\n", err)
-			return fmt.Errorf("processor.UnMarshal failed: %v", err)
-		}
-		msgfunc, err := r.processor.Route(headid, msg)
-		if err != nil {
-			log.Printf("[W]processor.Route failed: %v\n", err)
-		} else {
-			mrun.WorkerSubmit(func() {
-				udpconn := r.udpConnPool.Get().(*udpConn)
-				udpconn.remoteAddr = rAddr
-				udpconn.processor = r.processor
-				udpconn.conn = r.conn
-				udpconn.communicator = r.parent
-				msgfunc(&udpConn{remoteAddr: rAddr, processor: r.processor, conn: r.conn, communicator: r.parent}, msg)
-				r.udpConnPool.Put(udpconn)
-			})
-		}
-
-		r.readbuf = r.readbuf[0 : r.leftDataBuf.Len()-leftlen]
-		r.leftDataBuf.Read(r.readbuf)
+		cli.recieve(r.readBuf[:nn])
 	}
+
 	return nil
 }

@@ -152,13 +152,9 @@ func (w *tcpConnWriter) RunOnce(context.Context) error {
 
 type tcpConnReader struct {
 	tcpConnIOBase
-
-	leftData    []byte
-	leftDataBuf *bytes.Buffer
-	buf         []byte
-	readbuf     []byte
-	startIdx    int
-	copyLen     int
+	buf     *bytes.Buffer
+	header  []byte
+	readbuf []byte
 }
 
 func (r *tcpConnReader) RunOnce(context.Context) error {
@@ -174,54 +170,94 @@ func (r *tcpConnReader) RunOnce(context.Context) error {
 		log.Printf("[W]no processor provided\n")
 		return fmt.Errorf("no processor provided")
 	}
-	if r.leftData == nil {
-		r.leftData = make([]byte, 0, 2048)
-		r.leftDataBuf = bytes.NewBuffer(r.leftData)
-		r.leftDataBuf.Reset()
-		r.startIdx = 0
-		r.copyLen = 0
-	}
+
 	if r.buf == nil {
-		r.buf = make([]byte, 1024)
+		r.buf = bytes.NewBuffer(make([]byte, 3096))
+		r.buf.Reset()
+	}
+	if r.header == nil {
+		r.header = make([]byte, r.processor.HeaderLen())
 	}
 	if r.readbuf == nil {
-		r.readbuf = make([]byte, 1024)
+		r.readbuf = make([]byte, 3096)
 	}
 
 	// DebugMem()
-	r.buf = r.buf[0:]
-	nn, err := r.conn.Read(r.buf)
+	readLen := r.buf.Available()
+	nn, err := r.conn.Read(r.readbuf[:readLen])
 	if err != nil {
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil
+		}
 		log.Printf("[E]read message failed: %v\n", err)
 		return fmt.Errorf("read message failed: %v", err)
 	}
-	log.Printf("[D]%s from %s read %d bytes \n", r.conn.LocalAddr().String(), r.conn.RemoteAddr().String(), nn)
-	r.startIdx = 0
-	for nn > 0 {
-		if r.leftDataBuf.Cap()-r.leftDataBuf.Len() >= nn {
-			r.copyLen = nn
-		} else {
-			r.copyLen = r.leftDataBuf.Cap() - r.leftDataBuf.Len()
-		}
-		r.leftDataBuf.Write(r.buf[r.startIdx : r.startIdx+r.copyLen])
-		r.startIdx += r.copyLen
-		nn -= r.copyLen
-		headid, msg, leftlen, err := r.processor.Unmarshal(r.leftDataBuf.Bytes())
-		if err != nil {
-			log.Printf("[E]processor.UnMarshal failed: %v\n", err)
-			return fmt.Errorf("processor.UnMarshal failed: %v", err)
-		}
-		msgfunc, err := r.processor.Route(headid, msg)
-		if err != nil {
-			log.Printf("[W]processor.Route failed: %v\n", err)
-		} else {
-			mrun.WorkerSubmit(func() {
-				msgfunc(r.parent, msg)
-			})
-		}
+	if nn > 0 {
+		log.Printf("[D]%s from %s read %d bytes \n", r.conn.LocalAddr().String(), r.conn.RemoteAddr().String(), nn)
+		r.buf.Write(r.readbuf[:nn])
+	}
 
-		r.readbuf = r.readbuf[0 : r.leftDataBuf.Len()-leftlen]
-		r.leftDataBuf.Read(r.readbuf)
+	for r.buf.Len() >= r.processor.HeaderLen() {
+		nn, _ := r.buf.Read(r.header)
+		log.Printf("[D]header read %d bytes \n", nn)
+		msgid, msglen, err := r.processor.ParseHeader(r.header)
+		if err != nil {
+			log.Printf("[E]processor.ParseHeader failed: %v\n", err)
+			return fmt.Errorf("processor.ParseHeader failed: %v", err)
+		}
+		if msglen+r.processor.HeaderLen() > r.buf.Cap() {
+			log.Printf("[E]package len(%d) is beyond processor cap(%d)\n", msglen+r.processor.HeaderLen(), r.buf.Cap())
+			return fmt.Errorf("package len(%d) is beyond processor cap(%d)", msglen+r.processor.HeaderLen(), r.buf.Cap())
+		}
+		if msglen > 0 {
+			datalen := r.buf.Len()
+			if msglen > r.buf.Len() {
+				nn, err := r.buf.Read(r.readbuf[:datalen])
+				if nn != datalen || err != nil {
+					log.Printf("[E]read buffer failed: %v\n", err)
+					return fmt.Errorf("read buffer failed: %v", err)
+				}
+				r.buf.Write(r.header)
+				r.buf.Write(r.readbuf[:datalen])
+				return nil
+			}
+
+			nn, err := r.buf.Read(r.readbuf[:msglen])
+			if err != nil || nn != msglen {
+				log.Printf("[E]read buf failed: %v\n", err)
+				return fmt.Errorf("read buf failed: %v", err)
+			}
+
+			msg, err := r.processor.Unmarshal(msgid, r.readbuf[:msglen])
+			if err != nil {
+				log.Printf("[E]processor.Unmarshal(%#v) failed: %v\n", msgid, err)
+				return fmt.Errorf("processor.Unmarshal(%#v) failed: %v", msgid, err)
+			}
+
+			msgfunc, err := r.processor.Route(msgid, msg)
+			if err != nil {
+				log.Printf("[W]processor.Route failed: %v\n", err)
+			} else {
+				mrun.WorkerSubmit(func() {
+					msgfunc(r.parent, msg)
+				})
+			}
+		} else {
+			msg, err := r.processor.Unmarshal(msgid, nil)
+			if err != nil {
+				log.Printf("[E]processor.Unmarshal(%#v) failed: %v\n", msgid, err)
+				return fmt.Errorf("processor.Unmarshal(%#v) failed: %v", msgid, err)
+			}
+
+			msgfunc, err := r.processor.Route(msgid, msg)
+			if err != nil {
+				log.Printf("[W]processor.Route failed: %v\n", err)
+			} else {
+				mrun.WorkerSubmit(func() {
+					msgfunc(r.parent, msg)
+				})
+			}
+		}
 	}
 	return nil
 }

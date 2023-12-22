@@ -12,17 +12,11 @@ type JsonProcessor struct {
 	baseProcessor
 }
 
-func (p *JsonProcessor) Unmarshal(data []byte) (interface{}, interface{}, int, error) {
-	var payload []byte
-	leftlen, headid, payload, err := p.ParsePkg(data)
-	if err != nil {
-		log.Printf("[E]ParsePkg failed:%v\n", err)
-		return nil, nil, leftlen, err
-	}
+func (p *JsonProcessor) Unmarshal(msgid interface{}, msgdata []byte) (interface{}, error) {
 	var foundinfo *MsgInfo
 	p.msgInfos.Range(func(key, value interface{}) bool {
 		if info, ok := value.(*MsgInfo); ok && info != nil {
-			if info.headerid == headid {
+			if info.id == msgid {
 				foundinfo = info
 				return false
 			}
@@ -30,17 +24,17 @@ func (p *JsonProcessor) Unmarshal(data []byte) (interface{}, interface{}, int, e
 		return true
 	})
 	if foundinfo == nil {
-		log.Printf("[E]headid(%x) not register\n", headid)
-		return nil, nil, leftlen, fmt.Errorf("headid(%x) not register", headid)
+		log.Printf("[E]headid(%x) not register\n", msgid)
+		return nil, fmt.Errorf("headid(%x) not register", msgid)
 	}
 
 	msg := reflect.New(foundinfo.msgType.Elem()).Interface()
-	err = json.Unmarshal(payload, msg)
+	err := json.Unmarshal(msgdata, msg)
 	if err != nil {
-		log.Printf("[E]json.Unmarshal payload(%v) failed:%v\n", payload, err)
-		return nil, nil, leftlen, fmt.Errorf("json.Unmarshal payload(%v) failed:%v", payload, err)
+		log.Printf("[E]json.Unmarshal payload(%v) failed:%v\n", msgdata, err)
+		return nil, fmt.Errorf("json.Unmarshal payload(%v) failed:%v", msgdata, err)
 	}
-	return headid, msg, leftlen, nil
+	return msg, nil
 }
 
 // must goroutine safe
@@ -66,7 +60,7 @@ func (p *JsonProcessor) Marshal(msg interface{}) ([]byte, error) {
 			}
 
 			ret := make([]byte, 8)
-			binary.BigEndian.PutUint32(ret[:4], info.headerid)
+			binary.BigEndian.PutUint32(ret[:4], info.id)
 			binary.BigEndian.PutUint32(ret[4:8], uint32(8+len(data)))
 			ret = append(ret, data...)
 			// var hexbuilder strings.Builder

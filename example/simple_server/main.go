@@ -26,7 +26,11 @@ func main() {
 	userprocessor := &processor.ProtobufProcessor{}
 	userprocessor.RegisterHandler(uint32(hellopb.PK_HELLO_REQ_CMD), &hellopb.PK_HELLO_REQ{}, PbHelloReqHandle)
 	userprocessor.RegisterHandler(uint32(hellopb.PK_HELLO_RSP_CMD), &hellopb.PK_HELLO_RSP{}, nil)
-	s := mcommu.NewCommunicator("tcpserver", ":19999", 100, 100, 50, userprocessor)
+	s := mcommu.NewCommunicator("tcpserver", "127.0.0.1:19999", 100, 100, 50, userprocessor)
+	if s == nil {
+		log.Printf("mcommu.NewCommunicator(\"tcpserver\", \":19999\", 100, 100, 50, userprocessor) failed\n")
+		return
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)

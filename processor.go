@@ -13,10 +13,14 @@ type HandlerFunc func(conn IConn, req interface{})
 // }
 
 type IProcessor interface {
-	// must goroutine safe
-	Route(headid, msg interface{}) (func(conn IConn, req interface{}), error)
-	// must goroutine safe
-	Unmarshal(data []byte) (headid interface{}, msg interface{}, leftlen int, err error)
+
 	// must goroutine safe,
 	Marshal(msg interface{}) ([]byte, error)
+
+	HeaderLen() int
+	ParseHeader(data []byte) (msgid interface{}, msglen int, err error)
+	// must goroutine safe
+	Unmarshal(msgid interface{}, msgdata []byte) (msg interface{}, err error)
+	// must goroutine safe
+	Route(headid, msg interface{}) (func(conn IConn, req interface{}), error)
 }

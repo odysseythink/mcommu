@@ -25,6 +25,8 @@ func TestClient(idx int, addr string, msgprocessor mcommu.IProcessor) {
 			log.Printf("processor.Marshal(%#v) failed:%v\n", req, err)
 			return
 		}
+		log.Printf("[D]write data:%#v\n", data)
+
 		cnt := 0
 		buf := make([]byte, 100)
 		for {
@@ -35,12 +37,22 @@ func TestClient(idx int, addr string, msgprocessor mcommu.IProcessor) {
 				log.Printf("conn.Read failed:%v\n", err)
 				return
 			}
-			headid, msg, leftlen, err := msgprocessor.Unmarshal(buf[:nn])
+			msgid, msglen, err := msgprocessor.ParseHeader(buf[:msgprocessor.HeaderLen()])
 			if err != nil {
-				log.Printf("processor.ParsePkg failed:%v\n", err)
+				log.Printf("processor.ParseHeader failed:%v\n", err)
 				return
 			}
-			log.Printf("--leftlen=%d, headid=%v, payload=%#v\n", leftlen, headid, msg)
+			log.Printf("--msglen=%d, headid=%v\n", msglen, msgid)
+			if nn != (msgprocessor.HeaderLen() + msglen) {
+				log.Printf("msg len not match, wanted(%d), but real(%d)\n", msgprocessor.HeaderLen()+msglen, nn)
+				return
+			}
+			msg, err := msgprocessor.Unmarshal(msgid, buf[msgprocessor.HeaderLen():nn])
+			if err != nil {
+				log.Printf("processor.Unmarshal failed:%v\n", err)
+				return
+			}
+			log.Printf("--msg=%#v\n", msg)
 			time.Sleep(1 * time.Second)
 			cnt++
 			if cnt > 10 {

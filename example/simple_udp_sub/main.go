@@ -19,7 +19,7 @@ import (
 
 var (
 	sucTimes    int32 = 0
-	concurrency       = 5000
+	concurrency       = 10000
 )
 
 func PbHelloReqHandle(conn mcommu.IConn, req interface{}) {
@@ -35,6 +35,8 @@ func PbHelloReqHandle(conn mcommu.IConn, req interface{}) {
 func PbHelloRspHandle(conn mcommu.IConn, req interface{}) {
 	if helloRsp, ok := req.(*hellopb.PK_HELLO_RSP); !ok || helloRsp == nil {
 		log.Printf("invalid req=%#v\n", req)
+	} else {
+		log.Println("-----", helloRsp.Errmsg)
 	}
 }
 
@@ -100,14 +102,16 @@ func main() {
 	msgprocessor.RegisterHandler(uint32(hellopb.PK_HELLO_RSP_CMD), &hellopb.PK_HELLO_RSP{}, PbHelloRspHandle)
 
 	subs := mrun.ModuleMgr{}
-	for iLoop := 29999; iLoop < 29999+concurrency; iLoop++ {
-		subs.Register(&subudp{}, nil, iLoop, msgprocessor)
-	}
+
 	err := subs.Init()
 	if err != nil {
 		log.Printf("subs.Init() failed:%v\n", err)
 		return
 	}
+	for iLoop := 20000; iLoop < 20000+concurrency; iLoop++ {
+		subs.Register(&subudp{}, nil, iLoop, msgprocessor)
+	}
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
